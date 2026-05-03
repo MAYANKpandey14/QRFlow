@@ -1,8 +1,18 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { DB, AuthService } from '../services/db';
+
+import React, { useState } from 'react';
+import { useFolders, useCreateFolder, useDeleteFolder, useQRs } from '../hooks/useData';
 import { Folder, QRCodeData } from '../types';
-import { Folder as FolderIcon, Trash, ArrowLeft, QrCode, Palette } from 'lucide-react';
+import { Folder as FolderIcon, Trash, ArrowLeft, QrCode } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { Modal } from './ui/Modal';
+import { motion, AnimatePresence } from 'framer-motion';
+
+import { Button } from './ui/button';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
+import { Card, CardContent } from './ui/card';
+import { Badge } from './ui/badge';
+import { cn } from '@/lib/utils';
 
 const FOLDER_COLORS = [
     { name: 'Blue', value: 'blue', class: 'text-blue-500 bg-blue-50 border-blue-200 hover:border-blue-300' },
@@ -14,39 +24,28 @@ const FOLDER_COLORS = [
 ];
 
 export const FolderView: React.FC = () => {
-    const [folders, setFolders] = useState<Folder[]>([]);
+    const { data: folders } = useFolders();
+    const { data: qrs } = useQRs();
+    const createMutation = useCreateFolder();
+    const deleteMutation = useDeleteFolder();
+
     const [newFolderName, setNewFolderName] = useState('');
     const [selectedColor, setSelectedColor] = useState('blue');
     const [selectedFolder, setSelectedFolder] = useState<Folder | null>(null);
-    const [folderQrs, setFolderQrs] = useState<QRCodeData[]>([]);
-    
-    // Fix: Memoize user to prevent infinite loop in useEffect
-    const user = useMemo(() => AuthService.getCurrentUser(), []);
-
-    useEffect(() => {
-        if(user) setFolders(DB.getFolders(user.id));
-    }, [user]);
-
-    useEffect(() => {
-        if(selectedFolder && user) {
-            setFolderQrs(DB.getQRs(user.id).filter(q => q.folderId === selectedFolder.id));
-        }
-    }, [selectedFolder, user]);
+    const [deleteId, setDeleteId] = useState<string | null>(null);
 
     const handleCreate = () => {
-        if(!newFolderName || !user) return;
-        DB.createFolder(user.id, newFolderName, selectedColor);
-        setFolders(DB.getFolders(user.id));
+        if (!newFolderName) return;
+        createMutation.mutate({ name: newFolderName, color: selectedColor });
         setNewFolderName('');
         setSelectedColor('blue');
     };
 
-    const handleDelete = (id: string, e: React.MouseEvent) => {
-        e.stopPropagation();
-        if(confirm('Are you sure you want to delete this folder? QR codes inside will be moved to the main list.')) {
-            DB.deleteFolder(id);
-            if(user) setFolders(DB.getFolders(user.id));
-            if(selectedFolder?.id === id) setSelectedFolder(null);
+    const handleDelete = () => {
+        if (deleteId) {
+            deleteMutation.mutate(deleteId);
+            if (selectedFolder?.id === deleteId) setSelectedFolder(null);
+            setDeleteId(null);
         }
     }
 
@@ -55,37 +54,54 @@ export const FolderView: React.FC = () => {
     };
 
     if (selectedFolder) {
+        const folderQrs = qrs?.filter(q => q.folderId === selectedFolder.id) || [];
+
         return (
             <div className="space-y-6">
-                <button onClick={() => setSelectedFolder(null)} className="flex items-center gap-2 text-slate-600 hover:text-indigo-600 transition-colors">
+                <Button variant="ghost" onClick={() => setSelectedFolder(null)} className="gap-2 text-muted-foreground hover:text-foreground">
                     <ArrowLeft size={20} /> Back to Folders
-                </button>
+                </Button>
                 <div className="flex items-center gap-3">
                     <FolderIcon className={`w-8 h-8 ${getFolderColorClass(selectedFolder.color).split(' ')[0]}`} />
-                    <h1 className="text-2xl font-bold text-slate-900">{selectedFolder.name}</h1>
-                    <span className="bg-slate-100 text-slate-600 px-3 py-1 rounded-full text-sm font-medium">{folderQrs.length} Items</span>
+                    <h1 className="text-2xl font-bold text-foreground">{selectedFolder.name}</h1>
+                    <Badge variant="secondary">{folderQrs.length} Items</Badge>
                 </div>
 
                 {folderQrs.length === 0 ? (
-                    <div className="text-center py-12 bg-white rounded-xl border border-dashed border-slate-300">
-                        <p className="text-slate-500">This folder is empty.</p>
-                        <Link to="/create" className="text-indigo-600 font-medium hover:underline mt-2 inline-block">Create QR Code</Link>
-                    </div>
+                    <Card className="border-dashed">
+                        <CardContent className="py-12 text-center">
+                            <p className="text-muted-foreground">This folder is empty.</p>
+                            <Button variant="link" asChild className="mt-2">
+                                <Link to="/create">Create QR Code</Link>
+                            </Button>
+                        </CardContent>
+                    </Card>
                 ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                         {folderQrs.map(qr => (
-                             <div key={qr.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex items-center gap-4 hover:shadow-md transition-shadow">
-                                 <div className="w-12 h-12 bg-indigo-50 rounded-lg flex items-center justify-center text-indigo-600">
-                                     <QrCode size={24} />
-                                 </div>
-                                 <div className="flex-1 min-w-0">
-                                     <h4 className="font-bold text-slate-900 truncate">{qr.name}</h4>
-                                     <p className="text-xs text-slate-500 uppercase">{qr.type}</p>
-                                 </div>
-                                 <Link to={`/analytics?id=${qr.id}`} className="text-xs bg-slate-100 px-3 py-1.5 rounded-lg hover:bg-slate-200 font-medium transition-colors">Stats</Link>
-                             </div>
-                         ))}
-                    </div>
+                    <motion.div layout className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {folderQrs.map(qr => (
+                            <motion.div
+                                layout
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                key={qr.id}
+                            >
+                                <Card className="hover:shadow-md transition-shadow">
+                                    <CardContent className="p-4 flex items-center gap-4">
+                                        <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center text-primary">
+                                            <QrCode size={24} />
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <h4 className="font-bold text-foreground truncate">{qr.name}</h4>
+                                            <p className="text-xs text-muted-foreground uppercase">{qr.type}</p>
+                                        </div>
+                                        <Button variant="secondary" size="sm" asChild>
+                                            <Link to={`/analytics?id=${qr.id}`}>Stats</Link>
+                                        </Button>
+                                    </CardContent>
+                                </Card>
+                            </motion.div>
+                        ))}
+                    </motion.div>
                 )}
             </div>
         );
@@ -93,70 +109,89 @@ export const FolderView: React.FC = () => {
 
     return (
         <div className="space-y-6">
-            <h1 className="text-2xl font-bold text-slate-900">Folder Management</h1>
-            <p className="text-slate-500 -mt-4">Organize your QR codes into colored folders.</p>
-            
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                <div className="flex flex-col md:flex-row gap-4">
-                    <div className="flex-1 space-y-2">
-                        <label className="text-sm font-medium text-slate-700">Folder Name</label>
-                        <input 
-                            className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" 
-                            placeholder="e.g. Marketing Campaign"
-                            value={newFolderName}
-                            onChange={(e) => setNewFolderName(e.target.value)}
-                        />
-                    </div>
-                    <div className="space-y-2">
-                         <label className="text-sm font-medium text-slate-700">Color Tag</label>
-                         <div className="flex gap-2">
-                             {FOLDER_COLORS.map(c => (
-                                 <button
-                                    key={c.value}
-                                    onClick={() => setSelectedColor(c.value)}
-                                    className={`w-10 h-10 rounded-full border-2 flex items-center justify-center transition-all ${selectedColor === c.value ? 'border-slate-800 scale-110' : 'border-transparent'}`}
-                                    title={c.name}
-                                 >
-                                     <div className={`w-6 h-6 rounded-full ${c.class.split(' ')[1].replace('bg-', 'bg-').replace('-50', '-500')}`}></div>
-                                 </button>
-                             ))}
-                         </div>
-                    </div>
-                    <div className="flex items-end">
-                        <button onClick={handleCreate} disabled={!newFolderName} className="px-6 py-2.5 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors h-11">
-                            Create Folder
-                        </button>
-                    </div>
-                </div>
-            </div>
+            <h1 className="text-2xl font-bold text-foreground">Folder Management</h1>
+            <p className="text-muted-foreground -mt-4">Organize your QR codes into colored folders.</p>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                {folders.map(f => {
-                    const colorStyle = getFolderColorClass(f.color);
-                    return (
-                        <div 
-                            key={f.id} 
-                            onClick={() => setSelectedFolder(f)}
-                            className={`p-6 rounded-xl shadow-sm border flex flex-col justify-between h-36 cursor-pointer transition-all group ${colorStyle}`}
-                        >
-                            <div className="flex items-start justify-between">
-                                <FolderIcon className="opacity-80" size={32} />
-                                <button 
-                                    onClick={(e) => handleDelete(f.id, e)} 
-                                    className="text-slate-400 hover:text-red-600 p-1 rounded-full hover:bg-white/50 transition-colors"
-                                    title="Delete Folder"
-                                >
-                                    <Trash size={18} />
-                                </button>
-                            </div>
-                            <div>
-                                <h3 className="font-bold text-slate-800 group-hover:underline decoration-2 underline-offset-2 transition-all">{f.name}</h3>
-                                <p className="text-xs text-slate-500 mt-1">Open to view QRs</p>
+            <Card>
+                <CardContent className="pt-6">
+                    <div className="flex flex-col md:flex-row gap-4">
+                        <div className="flex-1 space-y-2">
+                            <Label>Folder Name</Label>
+                            <Input
+                                placeholder="e.g. Marketing Campaign"
+                                value={newFolderName}
+                                onChange={(e) => setNewFolderName(e.target.value)}
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Color Tag</Label>
+                            <div className="flex gap-2">
+                                {FOLDER_COLORS.map(c => (
+                                    <button
+                                        key={c.value}
+                                        onClick={() => setSelectedColor(c.value)}
+                                        className={cn(
+                                            "w-10 h-10 rounded-full border-2 flex items-center justify-center transition-all",
+                                            selectedColor === c.value ? 'border-foreground scale-110' : 'border-transparent'
+                                        )}
+                                        title={c.name}
+                                    >
+                                        <div className={`w-6 h-6 rounded-full ${c.class.split(' ')[1].replace('bg-', 'bg-').replace('-50', '-500')}`}></div>
+                                    </button>
+                                ))}
                             </div>
                         </div>
-                    );
-                })}
-            </div>
+                        <div className="flex items-end">
+                            <Button onClick={handleCreate} disabled={!newFolderName} className="h-10">
+                                Create Folder
+                            </Button>
+                        </div>
+                    </div>
+                </CardContent>
+            </Card>
+
+            <motion.div layout className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <AnimatePresence>
+                    {folders?.map(f => {
+                        const colorStyle = getFolderColorClass(f.color);
+                        return (
+                            <motion.div
+                                layout
+                                initial={{ opacity: 0, scale: 0.9 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                exit={{ opacity: 0, scale: 0.9 }}
+                                key={f.id}
+                                onClick={() => setSelectedFolder(f)}
+                                className={`p-6 rounded-xl shadow-sm border flex flex-col justify-between h-36 cursor-pointer transition-all group ${colorStyle}`}
+                            >
+                                <div className="flex items-start justify-between">
+                                    <FolderIcon className="opacity-80" size={32} />
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        onClick={(e) => { e.stopPropagation(); setDeleteId(f.id); }}
+                                        className="text-muted-foreground hover:text-destructive hover:bg-white/50"
+                                    >
+                                        <Trash size={18} />
+                                    </Button>
+                                </div>
+                                <div>
+                                    <h3 className="font-bold text-foreground group-hover:underline decoration-2 underline-offset-2 transition-all">{f.name}</h3>
+                                    <p className="text-xs text-muted-foreground mt-1">Open to view QRs</p>
+                                </div>
+                            </motion.div>
+                        );
+                    })}
+                </AnimatePresence>
+            </motion.div>
+
+            <Modal isOpen={!!deleteId} onClose={() => setDeleteId(null)} title="Delete Folder" type="danger">
+                <p className="text-muted-foreground mb-6">Are you sure? QR codes inside this folder will be moved to the main list.</p>
+                <div className="flex justify-end gap-3">
+                    <Button variant="outline" onClick={() => setDeleteId(null)}>Cancel</Button>
+                    <Button variant="destructive" onClick={handleDelete}>Delete</Button>
+                </div>
+            </Modal>
         </div>
     );
-}
+};

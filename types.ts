@@ -4,18 +4,26 @@ export interface User {
   name: string;
 }
 
-export type QRType = 'url' | 'social' | 'vcard' | 'text' | 'wiki';
+export type QRType = 'url' | 'social' | 'vcard' | 'text' | 'wiki' | 'email' | 'wifi' | 'phone' | 'sms' | 'event';
 
 export interface QRDesign {
   fgColor: string;
   bgColor: string;
-  logoUrl?: string;
-  logoSize: number; // 0.1 to 0.3
+  // Gradient Support
+  gradientType?: 'none' | 'linear' | 'radial';
+  gradientColor2?: string;
+
   dotStyle: 'square' | 'dots' | 'rounded';
   cornerStyle: 'square' | 'rounded' | 'dots';
-  frame?: string;
-  frameText?: string;
+
+  // Logo
+  logoUrl?: string;
+  logoSize: number; // 0.1 to 0.3
+
+  // Advanced Frame
+  frame?: 'basic' | 'rounded' | 'bubble'; // Extended variants
   frameColor?: string;
+  frameText?: string;
 }
 
 export interface QRContent {
@@ -39,6 +47,29 @@ export interface QRContent {
     article: string;
     url: string;
   };
+  email?: {
+    email: string;
+    subject: string;
+    body: string;
+  };
+  phone?: string; // number
+  sms?: {
+    phone: string;
+    message: string;
+  };
+  wifi?: {
+    ssid: string;
+    encryption: 'WPA' | 'WEP' | 'nopass';
+    password?: string;
+    hidden: boolean;
+  };
+  event?: {
+    summary: string;
+    description: string;
+    location: string;
+    start: string; // ISO string
+    end: string;
+  };
 }
 
 export interface QRCodeData {
@@ -54,14 +85,27 @@ export interface QRCodeData {
   active: boolean;
 }
 
+export interface ShortenedLink {
+  id: string;
+  userId: string;
+  originalUrl: string;
+  slug: string;
+  alias?: string;
+  createdAt: string;
+  clicks: number;
+  qrId?: string; // Optional link to a QR code
+}
+
 export interface Scan {
   id: string;
-  qrId: string;
+  qrId?: string;
+  shortLinkId?: string;
   timestamp: string;
-  device: 'mobile' | 'desktop' | 'tablet';
-  browser: string;
-  city: string;
-  country: string;
+  device: 'mobile' | 'desktop' | 'tablet' | string; // Allow string for new devices
+  browser?: string;
+  city?: string;
+  country?: string;
+  ip?: string;
 }
 
 export interface Folder {
